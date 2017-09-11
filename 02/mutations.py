@@ -104,7 +104,7 @@ def drawStatistic(proteins, mutations, base_path):
 	Rows, Columns = np.mgrid[:dataframe.shape[0]+1, :dataframe.shape[1]+1]
 
 	# create subplots
-	fig, ax = pl.subplots(figsize=(7, 5))
+	fig, ax = pl.subplots(figsize=(9, 6))
 	ax.set_aspect("equal")
 	ax.xaxis.set_ticks_position('top')
 
@@ -197,9 +197,13 @@ def prepareResult(input_file, output_path):
 
 		if header.startswith(">"):
 			# get and sanitize the name
-			name = header[1:]
-			name = name.strip()
-			name = name.replace(" ", "_")
+			sanitized = header[1:]
+			sanitized = sanitized.strip()
+			sanitized = sanitized.replace(" ", "_")
+
+			# only take the sanitized head line if it's not empty
+			if sanitized is not "":
+				name = sanitized
 
 	# final path for saving the result
 	path = os.path.join(output_path, name)
@@ -212,9 +216,9 @@ def prepareResult(input_file, output_path):
 # The main method in which the program runs
 def main():
 	# program parameter
-	input_file = "proteins"
+	input_file = "uniprot_ids"
 	output_path = "output/"
-	with_graph = False
+	with_graph = True
 
 	# check whether file is empty or does not exist
 	if os.stat(input_file).st_size == 0:
