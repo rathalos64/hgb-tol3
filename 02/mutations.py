@@ -7,8 +7,9 @@ import math
 import sys
 import os
 import uuid
+import urllib.request
+from socket import timeout
 from functools import reduce
-import requests
 
 # The Uniprot link
 UNIPROT_URL = "http://www.uniprot.org/uniprot/"
@@ -22,8 +23,63 @@ REGEX_MUTATIONS = "{0} {1} {2}".format(
 )
 REGEX_NAME = "<h1 property=\"schema\:name\">(.+?)<\/h1>"
 
-# parses variants out of the given content into a mutations dictionary
-def retrieveVariants(content, mutations):
+# Conducts the crawling to uniprot.org and parses the transmitted content
+# into a mutation dictionary and a protein list
+def crawl(app):
+	print("[i] reading uniprot ids from {0}".format(app["input_file"]))
+
+	with open(app["input_file"]) as filehandler:
+		# a list of protein names
+		proteins = []
+
+		# contains all mutatations as a nested dictionary
+		mutations = {}
+
+		# iterate over ids
+		for p_id in filehandler:
+
+			# sanitize input
+			p_id = p_id.strip()
+
+			# skip header line
+			if p_id.startswith(">"):
+				continue
+
+			target = os.path.join(UNIPROT_URL, p_id)
+			print("[i] crawling {0}".format(target))
+			try:
+				# send HTTP GET request
+				request = urllib.request.Request(url=target, method="GET")
+				response = urllib.request.urlopen(request, timeout=15)
+				if response.status != 200:
+					print("[x] failed with {0}: {1}".format(response.status, response.reason))
+					print("[i] skip")
+					continue
+
+				# decode content
+				content = response.read().decode("utf-8")
+
+			except timeout:
+				print("[x] could not connect to {0}: host does not respond".format(target))
+				print("[i] skip")
+				continue
+
+			# retrive dictionary of variants
+			protein, mutations = retrieve_variants(content, mutations)
+
+			if protein is "":
+				print("[x] no mutations found for {0}, skipped...".format(target))
+				continue
+
+			proteins.append({
+				"id": p_id,
+				"name": protein
+			})
+
+	return proteins, mutations
+
+# Parses variants out of the given content into a mutations dictionary
+def retrieve_variants(content, mutations):
 	# parse mutations
 	for variants in re.compile(REGEX_MUTATIONS).findall(content):
 		fromA = variants[0]
@@ -42,7 +98,7 @@ def retrieveVariants(content, mutations):
 	return name, mutations
 
 # Prepare the mutations to align with a pcolor diagram in matplotlib.
-def prepereDataForStatistic(mutations):
+def prepare_statistic_data(mutations):
 
 	####################### [COLUMNS] #######################
 
@@ -82,7 +138,7 @@ def prepereDataForStatistic(mutations):
 	return columns, rows, values, raw
 
 # Draw the statistic with matplotlib by using a pcolor / pcolormesh representation.
-def drawStatistic(proteins, mutations, base_path):
+def draw_statistic(mutations, app):
 
 	# Graph-specific imports
 	import matplotlib.pylab as pl
@@ -92,7 +148,7 @@ def drawStatistic(proteins, mutations, base_path):
 	# For serializing the plot
 	import dill
 
-	columns, rows, values, raw = prepereDataForStatistic(mutations)
+	columns, rows, values, raw = prepare_statistic_data(mutations)
 
 	# create a R-like dataframe
 	df = pd.DataFrame({"fromAA": columns, "toAA": rows, "weight": values})
@@ -121,7 +177,7 @@ def drawStatistic(proteins, mutations, base_path):
 	# set labels
 	pl.ylabel("from amino acid")
 	pl.xlabel("to amino acid")
-	pl.title("Mutations in {0}".format(proteins), y=1.06, fontsize=10)
+	pl.title("Mutations in {0}".format(app["name"]), y=1.06, fontsize=10)
 	pl.tight_layout(pad=1.5)
 
 	# set axis options
@@ -149,50 +205,85 @@ def drawStatistic(proteins, mutations, base_path):
 	ax.format_coord = format_coord
 
 	# save the figure as a picture
-	figurepic_path = os.path.join(base_path, "variants_mesh.png")
+	figurepic_path = os.path.join(app["path"], "variants_mesh.png")
 	fig.savefig(figurepic_path)
-	fig.canvas.set_window_title('Mutations (natural variants) in proteins')
-	print("[i] figure picture saved to '{0}'".format(figurepic_path))
+	print("[i] figure picture saved to {0}".format(figurepic_path))
 
 	# save the figure as binary file to reopen it later
-	figurebin_path = os.path.join(base_path, "variants_mesh.matpltlib")
+	figurebin_path = os.path.join(app["path"], "variants_mesh.matpltlib")
 	with open(figurebin_path, "wb") as filehandler:
 		dill.dump(ax, filehandler)
-		print("[i] figure binary saved to '{0}'".format(figurebin_path))
+		print("[i] figure binary saved to {0}".format(figurebin_path))
 
 # Print all given mutations of all proteins to the console
-def printToConsole(proteins, mutations):
-	print("Mutations in {0}".format(proteins))
-	print("="*25)
+def print_to_console(mutations, app):
+	print("Mutations in {0}".format(app["name"]))
+	print("="*(13 + len(app["name"])))
 
 	for key, variants in sorted(mutations.items()):
 		print("[Key]: {0}".format(key))
 		for variant, number in sorted(variants.items()):
-			print(" {0} {1} {2} ({3})".format(" "*5, "-->", variant, number))
+			print(" {0} {1} {2} ({3})".format(" "*5, ">", variant, number))
 
 		print()
 
-# Write all given mutations of all proteins to a .csv file.
-# The path of the CSV file is given.
-def printToCSV(proteins, mutations, base_path):
-	path = os.path.join(base_path, "variants.csv")
+# Writes all given mutations of all proteins to a .csv file.
+def write_result_to_csv(mutations, app):
+	path = os.path.join(app["path"], "variants.csv")
 	with open(path, "w") as filehandler:
-		filehandler.write("Mutations in {0}:\n".format(proteins))
+		filehandler.write("Mutations in {0}:\n".format(app["name"]))
 		filehandler.write("from AA,to AA,number of variants\n")
 
 		for key, variants in sorted(mutations.items()):
 			for variant, number in sorted(variants.items()):
 				filehandler.write("{0},{1},{2}\n".format(key, variant, number))
 
-	print("[i] csv saved to '{0}'".format(path))
+	print("[i] csv saved to {0}".format(path))
 
-def prepareResult(input_file, output_path):
-	# the default name for the result directory
-	# is an unique uuid
-	name = str(uuid.uuid4())
+# Writes all used proteins with id and name to a .csv file.
+# This represents meta information
+def write_meta_to_csv(proteins, app):
+	path = os.path.join(app["path"], "meta.csv")
+	with open(path, "w") as filehandler:
+		filehandler.write("Crawled proteins in {0}:\n".format(app["name"]))
+		filehandler.write("id,name\n")
+
+		for protein in proteins:
+			filehandler.write("{0},{1}\n".format(protein["id"], protein["name"]))
+
+	print("[i] meta data saved to {0}".format(path))
+
+# Parses optional command line arguments
+# and set the fields for the application
+def parse_cmd_args(app):
+	# program parameter passed by cmd
+	args = sys.argv
+
+	app["input_file"] = args[1] if len(args) > 1 else app["input_file"]
+	app["output_dir"] = args[2] if len(args) > 2 else app["output_dir"]
+	app["graph"] = True if len(args) > 3 and args[3] == "-graph" else app["graph"]
+
+# Validates the previously parsed application arguments
+# and does some preparation
+def validate_cmd_args(app):
+	# check whether input file exists
+	if not os.path.exists(app["input_file"]):
+		return "input file {0} does not exist. Abort..".format(app["input_file"]), True
+
+	# check whether input file is empty
+	if os.stat(app["input_file"]).st_size == 0:
+		return "input file {0} is empty. Abort..".format(app["input_file"]), True
+
+	# create output directory
+	os.makedirs(app["output_dir"], exist_ok=True)
+
+	# retrieve name of the application
+	# search for a header line in input file
+	# if no one is given, define unique uuid as name
+	app["name"] = str(uuid.uuid4())
 
 	# check whether a header line is existing
-	with open(input_file) as filehandler:
+	with open(app["input_file"]) as filehandler:
 		header = filehandler.readlines()[0]
 
 		if header.startswith(">"):
@@ -203,84 +294,53 @@ def prepareResult(input_file, output_path):
 
 			# only take the sanitized head line if it's not empty
 			if sanitized is not "":
-				name = sanitized
+				app["name"] = sanitized
 
-	# final path for saving the result
-	path = os.path.join(output_path, name)
+	# set joined result path where the fetched result will be saved to
+	app["path"] = os.path.join(app["output_dir"], app["name"])
 
-	# create the necessary directory
-	os.makedirs(path, exist_ok=True)
+	# create result directory
+	os.makedirs(app["path"], exist_ok=True)
 
-	return path
+	return "", False
 
 # The main method in which the program runs
 def main():
-	# program parameter
-	input_file = "uniprot_ids"
-	output_path = "output/"
-	with_graph = True
+	# define application, default program parameter
+	app = {
+		"input_file": "uniprot_ids",
+		"output_dir": "output/",
+		"graph": False,
+	}
 
-	# check whether file is empty or does not exist
-	if os.stat(input_file).st_size == 0:
-		print("[x] path {0} is either empty or does not exist. Abort..".format(input_file))
+	# parse command line arguments
+	parse_cmd_args(app)
+
+	# validate command line arguments
+	message, err = validate_cmd_args(app)
+	if err:
+		print("[x] {0}".format(message))
 		sys.exit(1)
-
-	# create output directory
-	os.makedirs(output_path, exist_ok=True)
 
 	# start crawling
 	print("[i] starting uniprot crawler")
-	print("[i] reading uniprot ids from '{0}'".format(input_file))
-
-	with open(input_file) as filehandler:
-		# a list of protein names
-		proteins = []
-
-		# contains all mutatations as a nested dictionary
-		mutations = {}
-
-		# iterate over ids
-		for p_id in filehandler:
-
-			# sanitize input
-			p_id = p_id.strip()
-
-			# skip proteins header
-			if p_id.startswith(">"):
-				continue
-
-			# send HTTP GET request
-			print("[i] crawling for '{0}'".format(p_id))
-
-			resp = requests.get(os.path.join(UNIPROT_URL, p_id))
-			if resp.status_code != 200:
-				print("[x] failed with {0}: {1}".format(resp.status_code, resp.reason))
-				print("[i] skip")
-				continue
-
-			content = resp.content.decode("utf-8")
-
-			# retrive dictionary of variants
-			protein, mutations = retrieveVariants(content, mutations)
-
-			if protein is "":
-				print("[x] no mutations found for '{0}', skipped...".format(p_id))
-				continue
-
-			proteins.append(protein)
-
-	# prepare the result of the request
-	path = prepareResult(input_file, output_path)
+	proteins, mutations = crawl(app)
 
 	# print the data to console
-	printToConsole(proteins, mutations)
+	print_to_console(mutations, app)
 
-	# save the data into a .csv file
-	printToCSV(proteins, mutations, path)
+	# save meta data into a .csv file
+	write_meta_to_csv(proteins, app)
+
+	# save result data (mutations) into a .csv file
+	write_result_to_csv(mutations, app)
 
 	# draw the statistic
-	if with_graph:
-		drawStatistic(proteins, mutations, path)
+	if app["graph"]:
+		draw_statistic(mutations, app)
+
+	# stop crawling
+	print("[i] stopping uniprot crawler")
 
 if __name__ == '__main__':
 	main()

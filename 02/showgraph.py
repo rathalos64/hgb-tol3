@@ -11,12 +11,16 @@ def main():
 		sys.exit(1)
 
 	path = args[1]
+	if not os.path.exists(path):
+		print("[x] input file {0} does not exist. Abort..".format(path))
+		sys.exit(1)
+
 	if os.stat(path).st_size == 0:
-		print("[x] path {0} is either empty or does not exist. Abort..".format(path))
+		print("[x] input file {0} is empty. Abort..".format(path))
 		sys.exit(1)
 
 	if not path.endswith(".matpltlib"):
-		print("[x] path {0} not a valid .matpltlib file. Abort...".format(path))
+		print("[x] input file {0} is not a valid .matpltlib file. Abort...".format(path))
 		sys.exit(1)
 
 	import matplotlib.pyplot as plt
