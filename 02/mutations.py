@@ -1,5 +1,33 @@
 #!/usr/bin/env python
 
+# This script represents a web crawler for www.uniprot.org.
+#
+# This crawler is able to fetch the content
+# for a number of given protein ids (or p_id) and parse the kind and number of
+# mutations out of it.
+#
+# The fetched mutations will then be processed and shown to
+# the user in form of:
+# - a list of mutations printed to the console
+# - a list of mutations saved within a csv file
+# - a list of the fetched proteins with their corresponding name
+#   within a csv file (meta information)
+#
+# For every call of this script, it will create a directory where
+# the result of this crawl is saved to.
+# The can be manually done by prepending a header line within the passed input file.
+# If no header line is given, a unique UUID will be generated.
+#
+# [OPTIONAL] Futhermore, this crawler is also able present the
+# the fetched mutations in a with matplotlib generated colormap. This colormap
+# This features resembles the contribution chart on Github (https://goo.gl/images/Hb8YoE).
+# Please note, that in order to use this feature, the necessary packages must be
+# installed beforehand. (see requirements.txt for the individual packages).
+# The best way to install the packages would be with pip:
+# $ pip install -r requirements.txt
+#
+# This script was developed with Python 3.6.2
+
 # General imports
 import re
 import itertools
@@ -8,7 +36,7 @@ import sys
 import os
 import uuid
 import urllib.request
-from socket import timeout
+import socket
 from functools import reduce
 
 # The Uniprot link
@@ -50,18 +78,20 @@ def crawl(app):
 			try:
 				# send HTTP GET request
 				request = urllib.request.Request(url=target, method="GET")
-				response = urllib.request.urlopen(request, timeout=15)
+				response = urllib.request.urlopen(request, timeout=app["timeout"])
 				if response.status != 200:
 					print("[x] failed with {0}: {1}".format(response.status, response.reason))
-					print("[i] skip")
 					continue
 
 				# decode content
 				content = response.read().decode("utf-8")
 
-			except timeout:
+			except (urllib.error.HTTPError, urllib.error.URLError):
+				print("[x] could not connect to {0}".format(target))
+				continue
+
+			except socket.timeout:
 				print("[x] could not connect to {0}: host does not respond".format(target))
-				print("[i] skip")
 				continue
 
 			# retrive dictionary of variants
@@ -147,6 +177,11 @@ def draw_statistic(mutations, app):
 
 	# For serializing the plot
 	import dill
+
+	# if no mutations, return
+	if not mutations:
+		print("[w] no mutations given. cannot create graph")
+		return
 
 	columns, rows, values, raw = prepare_statistic_data(mutations)
 
@@ -262,6 +297,7 @@ def parse_cmd_args(app):
 	app["input_file"] = args[1] if len(args) > 1 else app["input_file"]
 	app["output_dir"] = args[2] if len(args) > 2 else app["output_dir"]
 	app["graph"] = True if len(args) > 3 and args[3] == "-graph" else app["graph"]
+	app["timeout"] = int(args[4]) if len(args) > 4 else app["timeout"]
 
 # Validates the previously parsed application arguments
 # and does some preparation
@@ -311,6 +347,7 @@ def main():
 		"input_file": "uniprot_ids",
 		"output_dir": "output/",
 		"graph": False,
+		"timeout": 15,
 	}
 
 	# parse command line arguments
