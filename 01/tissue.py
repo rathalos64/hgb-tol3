@@ -1,3 +1,4 @@
+# General imports
 import sys
 import uuid
 import os
@@ -24,6 +25,8 @@ REGEX_TISSUE = r'''
 					<TD(?:.+?)<\/TD>\n
 				<\/TR>'''
 
+# Conducts the crawling to the unigene database and parses the transmitted content
+# into a tissue dictionary and a gene list (metadata)
 def crawl(app):
 	print("[i] reading unigene query from {0}".format(app["input_file"]))
 
@@ -60,17 +63,13 @@ def crawl(app):
 				ident = re.compile(REGEX_ENTRYIDENT, re.S).findall(content)
 		
 				if not ident:
-					print("[x] the regular expression REGEX_ENTRYIDENT did not work. Please contact the " +
-						"responsible developer and report this incident")
-					print("[x] abort...")
-					sys.exit(1)
+					print("[x] skipped, could not find an identifier line (REGEX_ENTRYIDENT)")
+					continue
 
 				identifier = ident[0].split("&nbsp;&nbsp;&nbsp;")
 				if not identifier:
-					print("[x] could not find identifier in unigene. Please contact the " +
-						"responsible developer and report this incident")
-					print("[x] abort...")
-					sys.exit(1)
+					print("[x] skipped, could not find identifier (&nbsp;&nbsp;&nbsp;)")
+					continue
 
 				cluster_information = identifier[1].strip().split(" ")
 				organism, cluster_id = cluster_information[1].strip().split(".")
@@ -97,36 +96,35 @@ def crawl(app):
 
 		return genes, tissues
 
+# Parses all tissues out of the given HTML
+# and groups them by name
 def parse_tissues(content):
 	# find table with tissues
 	table = re.compile(REGEX_TISSUETABLE, re.S).findall(content)
 
 	if not table:
-		print("[x] the regular expression REGEX_TISSUETABLE did not work. Please contact the " +
-			"responsible developer and report this incident")
-		print("[x] abort...")
-		sys.exit(1)
+		print("[x] could not find a tissue table (REGEX_TISSUETABLE)")
+		return collections.Counter({})
 
 	table = table[0]
 	tissues = re.compile(REGEX_TISSUE, re.X).findall(table)
 
 	return collections.Counter(tissues)
 
+# Parses genes / metadata out of the given HTML
+# and returns a metadata object
+# Meta data consists of ugid, cluster_id, organism, name, number of tissues, query line
 def parse_metadata(content):
 	# find identifier line
 	ident = re.compile(REGEX_ENTRYIDENT, re.S).findall(content)
 	if not ident:
-		print("[x] the regular expression REGEX_ENTRYIDENT did not work. Please contact the " +
-			"responsible developer and report this incident")
-		print("[x] abort...")
-		sys.exit(1)
+		print("[x] could not find an identfier line (REGEX_ENTRYIDENT)")
+		return {}
 
 	identifier = ident[0].split("&nbsp;&nbsp;&nbsp;")
 	if not identifier:
-		print("[x] could not find identifier in unigene. Please contact the " +
-			"responsible developer and report this incident")
-		print("[x] abort...")
-		sys.exit(1)
+		print("[x] could not find valid identifier (&nbsp;&nbsp;&nbsp;)")
+		return {}
 
 	ugid = identifier[0].strip().split(":")[1]
 	organism = identifier[1].strip().split(" ")[1].split(".")[0]
@@ -135,10 +133,8 @@ def parse_metadata(content):
 	# check if there were no items found
 	name = re.compile(REGEX_ENTRYTITLE, re.S).findall(content)
 	if not name:
-		print("[x] the regular expression REGEX_ENTRYTITLE did not work. Please contact the " +
-			 "responsible developer and report this incident")
-		print("[x] abort...")
-		sys.exit(1)
+		print("[x] could not find a title (REGEX_ENTRYTITLE)")
+		return {}
 
 	name = name[0]
 
@@ -149,6 +145,8 @@ def parse_metadata(content):
 		"name": name,
 	}
 
+# Sends with given url query parameters a http request to
+# the unigene database
 def send_request(app, query):
 	# prepare the request depending on query parameter
 	if "link" in query.keys():
@@ -171,9 +169,12 @@ def send_request(app, query):
 		query["maxest"] = 1000000000 if "maxest" not in query.keys() else int(query["maxest"])
 
 	# encode query
-	q = urllib.parse.urlencode(query).encode("utf-8")
+	raw_q = urllib.parse.urlencode(query)
+	q = raw_q.encode("utf-8")
 
 	print("[i] crawling unigene with {0}".format(query))
+	if app["debug"]:
+		print("[d] URL: {0}?{1}".format(UNIGENE_URL, raw_q))
 	try:
 		# send HTTP GET request
 		request = urllib.request.Request(url=UNIGENE_URL, data=q, method="POST")
@@ -192,13 +193,13 @@ def send_request(app, query):
 	# check if there were no items found
 	title = re.compile(REGEX_ENTRYTITLE, re.S).findall(content)
 	if not title:
-		print("[x] the regular expression REGEX_ENTRYTITLE did not work. Please contact the " +
-			 "responsible developer and report this incident")
-		print("[x] abort...")
-		sys.exit(1)
+		return "could not find an entry title (REGEX_ENTRYTITLE)", True
 
 	if title[0].lower() == "no items found.":
-		return "no items were found for this query", True
+		return "no unigene entry has been found", True
+
+	if title[0].lower().endswith("has been retired"):
+		return "this gene has been retired", True
 
 	# return valid content
 	return content, False
@@ -237,6 +238,7 @@ def parse_cmd_args(app):
 	app["input_file"] = args[1] if len(args) > 1 else app["input_file"]
 	app["output_dir"] = args[2] if len(args) > 2 else app["output_dir"]
 	app["timeout"] = int(args[3]) if len(args) > 3 else app["timeout"]
+	app["debug"] = True if len(args) > 4 and args[4] == "-debug" else app["debug"]
 
 # Validates the previously parsed application arguments
 # and does some preparation
@@ -311,6 +313,9 @@ def write_meta_to_csv(genes, app):
 		filehandler.write("ugid;cluster_id;organism;tissue_cnt;name;query\n")
 
 		for gene in genes:
+			if not gene:
+				continue
+
 			filehandler.write("{0};{1};{2};{3};{4};{5}\n".format(
 				gene["ugid"], 
 				gene["cluster_id"],
@@ -327,6 +332,7 @@ def main():
 		"input_file": "example",
 		"output_dir": "output/",
 		"timeout": 15,
+		"debug": True,
 	}
 
 	# parse command line arguments
