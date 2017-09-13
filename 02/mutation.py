@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # This script represents a web crawler for www.uniprot.org.
 #
 # This crawler is able to fetch the content
@@ -39,16 +37,15 @@ import urllib.request
 import socket
 from functools import reduce
 
-# The Uniprot link
+# The uniprot URL
 UNIPROT_URL = "http://www.uniprot.org/uniprot/"
 
-# Needed regular expressions for parsing the HTTP content
+# Needed regular expressions for parsing HTML
 # u"\u2192" == "→"
 REGEX_MUTATIONS = "{0} {1} {2}".format(
 	r"<a href=\"(?:.+?)\">(?:(\w)",
 	u"\u2192",																																																	
-	r"(\w))</a>"
-)
+	r"(\w))</a>")
 REGEX_NAME = "<h1 property=\"schema\:name\">(.+?)<\/h1>"
 
 # Conducts the crawling to uniprot.org and parses the transmitted content
@@ -252,6 +249,7 @@ def draw_statistic(mutations, app):
 
 # Print all given mutations of all proteins to the console
 def print_to_console(mutations, app):
+	print()
 	print("Mutations in {0}".format(app["name"]))
 	print("="*(13 + len(app["name"])))
 
@@ -267,11 +265,11 @@ def write_result_to_csv(mutations, app):
 	path = os.path.join(app["path"], "variants.csv")
 	with open(path, "w") as filehandler:
 		filehandler.write("Mutations in {0}:\n".format(app["name"]))
-		filehandler.write("from AA,to AA,number of variants\n")
+		filehandler.write("from AA;to AA;number of variants\n")
 
 		for key, variants in sorted(mutations.items()):
 			for variant, number in sorted(variants.items()):
-				filehandler.write("{0},{1},{2}\n".format(key, variant, number))
+				filehandler.write("{0};{1};{2}\n".format(key, variant, number))
 
 	print("[i] csv saved to {0}".format(path))
 
@@ -281,10 +279,10 @@ def write_meta_to_csv(proteins, app):
 	path = os.path.join(app["path"], "meta.csv")
 	with open(path, "w") as filehandler:
 		filehandler.write("Crawled proteins in {0}:\n".format(app["name"]))
-		filehandler.write("id,name\n")
+		filehandler.write("id;name\n")
 
 		for protein in proteins:
-			filehandler.write("{0},{1}\n".format(protein["id"], protein["name"]))
+			filehandler.write("{0};{1}\n".format(protein["id"], protein["name"]))
 
 	print("[i] meta data saved to {0}".format(path))
 
