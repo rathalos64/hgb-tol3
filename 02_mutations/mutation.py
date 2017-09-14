@@ -43,9 +43,9 @@ UNIPROT_URL = "http://www.uniprot.org/uniprot/"
 # Needed regular expressions for parsing HTML
 # u"\u2192" == "→"
 REGEX_MUTATIONS = "{0} {1} {2}".format(
-	r"<a href=\"(?:.+?)\">(?:(\w)",
+	r"(?:(\w)",
 	u"\u2192",																																																	
-	r"(\w))</a>")
+	r"(\w))")
 REGEX_NAME = "<h1 property=\"schema\:name\">(.+?)<\/h1>"
 
 # Conducts the crawling to uniprot.org and parses the transmitted content

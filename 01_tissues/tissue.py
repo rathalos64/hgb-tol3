@@ -1,3 +1,24 @@
+# This script represents a web crawler for www.ncbi.nlm.nih.gov/UniGene/
+#
+# This crawler is able to fetch the content
+# for a number of given genes parse the kind and number of
+# tissue types out of it. It uses the data in ESTs to parse the tissues.
+#
+# The fetched tissues will then be processed and shown to
+# the user in form of:
+# - a list of tissues printed to the console
+# - a list of tissues saved within a csv file
+# - a list of the fetched genes with their unigene id (ugid),
+#   cluster_id (cid), organism (org), number of tissues, query parameter
+#   within a csv file (meta information)
+#
+# For every call of this script, it will create a directory where
+# the result of this crawl is saved to.
+# The can be manually done by prepending a header line within the passed input file.
+# If no header line is given, a unique UUID will be generated.
+#
+# This script was developed with Python 3.6.2
+
 # General imports
 import sys
 import uuid
@@ -332,7 +353,7 @@ def main():
 		"input_file": "example",
 		"output_dir": "output/",
 		"timeout": 15,
-		"debug": True,
+		"debug": False,
 	}
 
 	# parse command line arguments
